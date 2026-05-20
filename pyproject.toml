@@ -4,4 +4,17 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.116.1",
+    "gradio>=5.38.0",
+    "openai>=1.97.1",
+    "openai-whisper>=20250625",
+    "pydantic>=2.11.7",
+    "python-dotenv>=1.1.1",
+    "requests>=2.32.4",
+    "torch>=2.7.1",
+    "torchaudio>=2.7.1",
+    "twilio>=9.6.5",
+    "uvicorn[standard]>=0.35.0",
+    "websockets>=15.0.1",
+]
