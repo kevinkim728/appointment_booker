@@ -1,7 +1,9 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+import os
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional
+from twilio.twiml.voice_response import VoiceResponse
 from twilio_openai_handler import TwilioRealtimeServer
 
 app = FastAPI()
@@ -23,10 +25,18 @@ async def home():
 # Accepts appointment details, strips out the business phone, and triggers the outbound call
 @app.post("/make-call")
 async def initiate_outbound_call(request: CallDetails):
-    user_context = request.model_dumps()                       # convert Pydantic model to plain dict
+    user_context = request.model_dump()                       # convert Pydantic model to plain dict
     business_phone = user_context['business_phone'] # separate business_phone — passed to Twilio, not to the prompt
     result = await server.make_outbound_call(business_phone, user_context)
     return result
+
+# Twilio hits this when the call connects — responds with TwiML instructing Twilio to open a WebSocket stream
+@app.post("/webhook/voice")
+async def handle_voice_webhook(request: Request):
+    response = VoiceResponse()
+    connect = response.connect()
+    connect.stream(url=os.getenv('WEBSOCKET_URL'))
+    return Response(content=str(response), media_type="application/xml")
 
 # Starts the server
 def start_server():
