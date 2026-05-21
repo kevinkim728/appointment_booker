@@ -2,6 +2,8 @@ import os
 import json
 import asyncio
 import websockets
+import requests
+import whisper
 from dotenv import load_dotenv
 from twilio.rest import Client
 from datetime import datetime
@@ -55,12 +57,13 @@ class TwilioRealtimeServer:
 
         if event == 'start':
             # stream just opened — connect to OpenAI and register this WebSocket so we can send audio back
-            print("🎤 Call started - connecting to OpenAI")
             await self.connect_to_openai() # Initializes the OpenAI websocket
             self.twilio_connections[data.get('streamSid')] = twilio_ws # Stores the key streamSid and value twilio_ws(WebSocket object) into twilio_connections dict
+            print(f'StreamSid stored:{data.get("streamSid")}')
 
         elif event == 'media':
             # continuous audio chunks from Twilio — forward to OpenAI
+            print("🎤 Media pipeline established - audio flowing from Twilio")
             audio_payload = data.get('media', {}).get('payload', '')  # safely navigate nested dict, default to empty string
             if audio_payload and self.openai_ws:
                 await self.send_audio_to_openai(audio_payload)
@@ -129,6 +132,7 @@ class TwilioRealtimeServer:
             }
 
             await self.openai_ws.send(json.dumps(session_update)) # Sends the payload to the openai websocket
+            print("Session update sent to OpenAI ✅")
             asyncio.create_task(self.handle_openai_messages())  # start listening for OpenAI responses in the background
 
         except Exception as e:
@@ -176,3 +180,81 @@ class TwilioRealtimeServer:
     """
 
         return prompt
+
+    async def send_audio_to_openai(self, audio_payload):
+        """Send audio from Twilio to OpenAI"""
+        if not self.openai_ws:
+            return
+
+        message = {
+            "type": "input_audio_buffer.append",  # OpenAI Realtime API message type for streaming audio in
+            "audio": audio_payload                 # raw base64-encoded G.711 audio chunk from Twilio, passed through as-is
+        }
+
+        try:
+            await self.openai_ws.send(json.dumps(message))
+        except Exception as e:
+            print(f"Error sending audio to OpenAI: {e}")
+
+
+    
+    async def handle_openai_messages(self):
+        """Handle responses from OpenAI and send back to Twilio"""
+        try:
+            async for message in self.openai_ws: # loops forever, yielding each message OpenAI sends. This is what makes it a background listener — it just sits here waiting.
+                data = json.loads(message)
+
+                # OpenAI streams audio back in chunks. Each chunk is a delta. We forward each one to Twilio as it arrives.
+                if data.get('type') == 'response.audio.delta': # checks if the type is an audio response.
+                    audio_data = data.get('delta', '') # if it is then get data['delta']
+                    if audio_data: # If data['delta'] is not empty,
+                        await self.send_audio_to_twilio(audio_data) # Then call send_audio_to_twilio with the audio_data as the payload
+
+                elif data.get('type') == 'response.function_call_arguments.done': # If the type is a function call,
+                    function_name = data.get('name') # then get the name
+                    if function_name == 'terminate_call': #if the name is terminate_call
+                        args = json.loads(data.get('arguments', '{}')) # turns the argument into a python dict
+                        reason = args.get('reason', 'ai_completed') # get the reason for tool call
+                        await self.terminate_call(self.current_call_sid, reason) # run terminate_call and by passing in the sid and the reason
+        except websockets.exceptions.ConnectionClosed:
+            print("OpenAI connection closed")
+        except Exception as e:
+            print(f"Error handling OpenAI messages: {e}")
+        
+        
+    async def send_audio_to_twilio(self, audio_data): # audio_data: audio data payload from OpenAI
+      """Send audio from OpenAI back to all active Twilio connections"""
+      for stream_sid, twilio_ws in list(self.twilio_connections.items()): # tuple unpacking. Put it in a list() to prevent crashing. One is stream_sid and the other is twilio_ws
+          try:
+              twilio_message = {
+                  "event": "media",
+                  "streamSid": stream_sid,
+                  "media": {
+                      "payload": audio_data
+                  }
+              }
+              await twilio_ws.send_text(json.dumps(twilio_message)) # Sends the text to Twilio with the twilio_message
+          except Exception as e:
+              print(f"Error sending audio to Twilio {stream_sid}: {e}")
+              if stream_sid in self.twilio_connections:
+                  del self.twilio_connections[stream_sid]
+
+    
+    async def terminate_call(self, call_sid: str, reason: str = "completed"):
+      """Terminate an active call"""
+      try:
+          self.twilio_client.calls(call_sid).update(status='completed')
+          print(f"📞 Call terminated: {call_sid} - Reason: {reason}")
+          await asyncio.sleep(2)
+
+          if self.openai_ws:
+              await self.openai_ws.close()
+              self.openai_ws = None
+
+          self.twilio_connections.clear()
+
+          return {"success": True, "call_sid": call_sid, "reason": reason}
+
+      except Exception as e:
+          print(f"❌ Failed to terminate call {call_sid}: {e}")
+          return {"success": False, "error": str(e)}
