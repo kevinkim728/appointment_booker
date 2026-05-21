@@ -1,5 +1,6 @@
 import os
-from fastapi import FastAPI, Request
+import json
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional
@@ -17,26 +18,57 @@ class CallDetails(BaseModel):
     additional_details: Optional[str] = "Party for 2"
     business_phone: str = "business-phone-number"
 
-# Generic home page to validate if the server is running
 @app.get("/")
 async def home():
+    """
+    Generic home page to validate if the server is running
+    """
     return HTMLResponse("<h1>Twilio Realtime Server</h1><p>Server is running!</p>")
 
-# Accepts appointment details, strips out the business phone, and triggers the outbound call
 @app.post("/make-call")
 async def initiate_outbound_call(request: CallDetails):
-    user_context = request.model_dump()                       # convert Pydantic model to plain dict
+    """
+    API endpoint to initiate outbound calls. 
+    Accepts CallDetails, strips out the business phone
+    Triggers the outbound call
+    """
+    user_context = request.model_dump()             # convert Pydantic model to plain dict
     business_phone = user_context['business_phone'] # separate business_phone — passed to Twilio, not to the prompt
-    result = await server.make_outbound_call(business_phone, user_context)
+    result = await server.make_outbound_call(business_phone, user_context) 
     return result
 
 # Twilio hits this when the call connects — responds with TwiML instructing Twilio to open a WebSocket stream
 @app.post("/webhook/voice")
-async def handle_voice_webhook(request: Request):
-    response = VoiceResponse()
-    connect = response.connect()
-    connect.stream(url=os.getenv('WEBSOCKET_URL'))
-    return Response(content=str(response), media_type="application/xml")
+async def handle_voice_webhook():
+    """Handles incoming and outgoing Twilio voice calls"""
+    response = VoiceResponse() # Creates a TwiML object with a <Response> element
+    connect = response.connect() # Creates a <Connect> element in <response>
+    connect.stream(url=os.getenv('WEBSOCKET_URL')) # Creates a <Stream> element in <Connect> so Twilio can stream audio from this WebSocket endpoint
+    return Response(content=str(response), media_type="application/xml") # Converts the TwiML object into a string
+
+@app.post("/recording")
+async def handle_recording_webhook(request: Request):
+    form_data = await request.form() # Twilio sends recording callbacks as .form() data, not JSON. So instead of request.json() we use request.form().
+    recording_url = form_data.get('RecordingUrl') # we extract the fields we need. Twilio sends a bunch of fields
+    call_sid = form_data.get('CallSid') # these three are the ones we care about: the URL to download the audio, the call ID, and the recording ID.
+    recording_sid = form_data.get('RecordingSid')
+    return {"status": "received"}
+
+@app.websocket("/media-stream")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for Twilio Media Streams"""
+    await websocket.accept() # .accept() opens the door for Twilio and establishes the connection
+    print("Twilio connected via FastAPI WebSocket")
+    
+    try:
+        while True:
+            data = await websocket.receive_text() # Waits and when Twilio sends something .receive_text() returns it as a string
+            message = json.loads(data) # Turns that string into a python dict
+            await server.handle_twilio_message(message, websocket) # calls handle_twilio_message with that python dict and the Websocket object
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        print("Twilio WebSocket disconnected")
 
 # Starts the server
 def start_server():
