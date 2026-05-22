@@ -99,16 +99,22 @@ class TwilioRealtimeServer:
             session_update = {
                 "type": "session.update",
                 "session": {
-                    "instructions": instructions,  # system prompt — defines the AI's personality and task for this call
-                    "voice": "alloy",
-                    "input_audio_format": "g711_ulaw",       # matches Twilio's format so no conversion needed
-                    "output_audio_format": "g711_ulaw",
-                    "speed": 1.1,
-                    "temperature": 0.7,
-                    "turn_detection": {
-                        "type": "server_vad",                # OpenAI detects when the person stops talking and auto-responds
-                        "threshold": 0.7,                    # how sensitive the VAD is
-                        "silence_duration_ms": 1000          # how long to wait after silence before responding
+                    "type": "realtime",                      # required by the new OpenAI Realtime API
+                    "instructions": instructions,            # system prompt — defines the AI's personality and task for this call
+                    "audio": {
+                        "input": {
+                            "format": {"type": "audio/pcmu"},  # G.711 μ-law — matches Twilio's format so no conversion needed
+                            "turn_detection": {
+                                "type": "server_vad",          # OpenAI detects when the person stops talking and auto-responds
+                                "threshold": 0.7,              # how sensitive the VAD is
+                                "silence_duration_ms": 1000    # how long to wait after silence before responding
+                            }
+                        },
+                        "output": {
+                            "format": {"type": "audio/pcmu"},  # G.711 μ-law — matches Twilio's format so no conversion needed
+                            "voice": "alloy",
+                            "speed": 1.1
+                        }
                     },
                     "tools": [
                         {
