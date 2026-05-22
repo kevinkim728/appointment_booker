@@ -82,7 +82,7 @@ class TwilioRealtimeServer:
         if self.openai_ws: # If theres something inside openai_ws then do nothing
             return None
 
-        url = "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview-2024-12-17"
+        url = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2"
         headers = {
             "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
             "OpenAI-Beta": "realtime=v1" 
@@ -104,10 +104,12 @@ class TwilioRealtimeServer:
                     "audio": {
                         "input": {
                             "format": {"type": "audio/pcmu"},  # G.711 μ-law — matches Twilio's format so no conversion needed
+                            "noise_reduction": {
+                                "type": "near_field"           # filters background noise for close-talking mic (phone handset)
+                            },
                             "turn_detection": {
-                                "type": "server_vad",          # OpenAI detects when the person stops talking and auto-responds
-                                "threshold": 0.7,              # how sensitive the VAD is
-                                "silence_duration_ms": 1000    # how long to wait after silence before responding
+                                "type": "semantic_vad",        # uses a model to detect when the user is truly done speaking
+                                "eagerness": "low"             # waits up to 8s — gives host time to check availability without AI interrupting
                             }
                         },
                         "output": {
