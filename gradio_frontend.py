@@ -3,7 +3,7 @@ import gradio as gr
 import requests
 import json
 
-def make_appointment_call(user_name, appointment_type, preferred_times, user_phone, additional_details, business_phone):
+def make_appointment_call(user_name, appointment_type, preferred_times, additional_details, business_phone):
     """Make an appointment call using the FastAPI backend"""
 
     # Convert preferred_times string to list (split by commas)
@@ -14,7 +14,6 @@ def make_appointment_call(user_name, appointment_type, preferred_times, user_pho
         "user_name": user_name,
         "appointment_type": appointment_type,
         "preferred_times": times_list,
-        "user_phone": '1'+ user_phone,
         "additional_details": additional_details,
         "business_phone": '1'+ business_phone
     }
@@ -43,32 +42,23 @@ with gr.Blocks(title="AI Appointment Booker") as app:
                 label="Your Name",
                 placeholder="Enter your name"
             )
-
             appointment_type = gr.Textbox(
                 label="Appointment Type",
                 placeholder="e.g., haircut, doctor appointment, restaurant reservation"
             )
-
             preferred_times = gr.Textbox(
                 label="Preferred Times",
                 placeholder="Enter times separated by commas"
             )
-
-        with gr.Column():
-            user_phone = gr.Textbox(
-                label="Your Phone Number",
-                placeholder="e.g 123"
+            business_phone = gr.Textbox(
+                label="Business Phone Number",
+                placeholder="Phone number to call"
             )
-
             additional_details = gr.Textbox(
                 label="Additional Details",
                 placeholder="Any special requests or details (eg. Party of 2)"
             )
 
-            business_phone = gr.Textbox(
-                label="Business Phone Number",
-                placeholder="Phone number to call"
-            )
 
     make_call_btn = gr.Button("📞 Make Call", variant="primary", size="lg")
 
@@ -82,7 +72,7 @@ with gr.Blocks(title="AI Appointment Booker") as app:
     # Connect the button to the function
     make_call_btn.click(
         fn=make_appointment_call,
-        inputs=[user_name, appointment_type, preferred_times, user_phone, additional_details, business_phone],
+        inputs=[user_name, appointment_type, preferred_times, additional_details, business_phone],
         outputs=result_output
     )
 

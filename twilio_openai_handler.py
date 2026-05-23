@@ -154,7 +154,6 @@ class TwilioRealtimeServer:
         user_name = self.call_context.get('user_name', 'the user')
         appointment_type = self.call_context.get('appointment_type', 'an appointment')
         preferred_times = self.call_context.get('preferred_times', [])
-        user_phone = self.call_context.get('user_phone', '')
         additional_details = self.call_context.get('additional_details', '')
 
         time_prefs = ""
@@ -174,7 +173,6 @@ class TwilioRealtimeServer:
 
     Additional Details:
     - {additional_details}
-    - {user_phone}
 
     Available Tools:
     - terminate_call: Use this TOOL to end the call
