@@ -17,6 +17,7 @@ class CallDetails(BaseModel):
     user_name: str = "user name"
     appointment_type: str = "restaurant reservation"
     preferred_times: List[str] = ["Tuesday 12-2"]
+    date: Optional[str] = "date of reservation"
     additional_details: Optional[str] = "Party for 2"
     business_phone: str = "business-phone-number"
 

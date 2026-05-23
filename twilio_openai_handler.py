@@ -15,6 +15,7 @@ class TwilioRealtimeServer:
         self.openai_ws = None                  # holds the live WebSocket connection to OpenAI (None when no call is active)
         self.twilio_connections = {}           # maps streamSid -> Twilio WebSocket so we know where to send audio back
         self.current_call_sid = None           # Twilio's unique ID for the active call, used later to hang up
+        self.call_start_time = None            # timestamp of when the stream opened, used to skip the Twilio trial message
         self.twilio_client = Client(           # Twilio REST API client, authenticated with credentials from .env
             os.getenv('TWILIO_ACCOUNT_SID'),
             os.getenv('TWILIO_AUTH_TOKEN')
@@ -38,6 +39,7 @@ class TwilioRealtimeServer:
 
             self.current_call_sid = call.sid       # save the call ID so we can hang up later
             print(f"✅ Call initiated. Call SID: {self.current_call_sid}")
+            print(f"Webhook URL: {os.getenv('WEBSOCKET_URL').replace('wss://', 'https://').replace('/media-stream', '')}/webhook/voice")
             return {
                 "success": True, 
                 "call_sid": self.current_call_sid, 
@@ -59,12 +61,14 @@ class TwilioRealtimeServer:
             # stream just opened — connect to OpenAI and register this WebSocket so we can send audio back
             await self.connect_to_openai() # Initializes the OpenAI websocket
             self.twilio_connections[data.get('streamSid')] = twilio_ws # Stores the key streamSid and value twilio_ws(WebSocket object) into twilio_connections dict
+            self.call_start_time = datetime.now() # record when the stream opened so we can skip the Twilio trial message
             print(f'StreamSid stored:{data.get("streamSid")}')
 
         elif event == 'media':
             # continuous audio chunks from Twilio — forward to OpenAI
             audio_payload = data.get('media', {}).get('payload', '')  # safely navigate nested dict, default to empty string
-            if audio_payload and self.openai_ws:
+            elapsed = (datetime.now() - self.call_start_time).seconds if self.call_start_time else 0
+            if audio_payload and self.openai_ws and elapsed >= 4:
                 await self.send_audio_to_openai(audio_payload)
 
         elif event == 'stop':
@@ -84,8 +88,7 @@ class TwilioRealtimeServer:
 
         url = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2"
         headers = {
-            "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
-            "OpenAI-Beta": "realtime=v1" 
+            "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}"
         }
 
         try:
@@ -154,35 +157,57 @@ class TwilioRealtimeServer:
         user_name = self.call_context.get('user_name', 'the user')
         appointment_type = self.call_context.get('appointment_type', 'an appointment')
         preferred_times = self.call_context.get('preferred_times', [])
+        date = self.call_context.get('date', '')
         additional_details = self.call_context.get('additional_details', '')
 
-        time_prefs = ""
-        if preferred_times:
-            time_prefs = f"Preferred times: {', '.join(preferred_times)}. "
+        time_prefs = f"{', '.join(preferred_times)}" if preferred_times else ""
 
-        prompt = f"""You are a professional AI assistant calling on behalf of the user whose name is {user_name} to book a {appointment_type}. Todays date is {datetime.now().strftime("%A, %B %d, %Y")}.
+        prompt = f"""
+## Role & Objective
+You are a professional AI assistant making an outbound call on behalf of {user_name} to book a {appointment_type} for {date}. Your goal is to confirm a booking at one of the preferred times and collect any details the business needs. Success means a fully confirmed booking or a clear determination that no availability exists.
 
-    Introduction message:
-    - Hello, I am {user_name}'s AI assistant calling to schedule a {appointment_type}. The available times are: {time_prefs}
+## Personality & Tone
+- Friendly, concise, and professional
+- 2-3 sentences per turn maximum
+- Do NOT include sound effects or onomatopoeic expressions
+- The conversation will be in English only
 
-    Your role:
-    - Your only goal is to book the appointment or suggest that you'll call them back if nothing is available.
-    - Have your responses be very concise, and to the point.
-    - If you are unclear about any suggestions, inform them that you will get back to {user_name} and call back.
-    - Do not repeat yourself.
+## Handling Unclear Audio
+- IF you cannot hear or understand what was said, ask for clarification: "I'm sorry, could you repeat that?"
+- Do NOT guess or assume what was said if the audio is unclear
 
-    Additional Details:
-    - {additional_details}
+## Conversation Flow
+Follow these phases in order:
 
-    Available Tools:
-    - terminate_call: Use this TOOL to end the call
-    - THESE ARE AI TOOLS. USE THEM, DON'T ANNOUNCE SAY THEM
+**Phase 1 — Introduction**
+- Greet the business and state your purpose
+- Example: "Hi, I'm calling on behalf of {user_name} to book a {appointment_type} for {date}. Do you have availability at {time_prefs}?"
+- Exit criteria: business has responded to your greeting
 
-    CRITICAL:
-    - You MUST USE the terminate_call tool to ensure success - this is the only way to end calls.
-    - Once you have completed your task (either booked the appointment or determined you need to call back), say your full farewell message and immediately use terminate_call after you're done speaking. Do not give them a chance to respond.
-    - You MUST always be the one to terminate the call.
-    """
+**Phase 2 — Confirm Availability**
+- If available at a preferred time: confirm which time and move to Phase 3
+- If not available: ask if any other times work, if still no — move to Phase 4
+- Exit criteria: availability is clearly confirmed or denied
+
+**Phase 3 — Collect Details**
+- Answer any questions the business asks (name, party size, contact, etc.)
+- Name for the reservation: {user_name}
+- Additional details to provide when asked: {additional_details}
+- Do NOT volunteer all details at once — answer each question as it comes
+- If asked for information you don't have, do NOT make it up. Tell them {user_name} will call back with that information.
+- Exit criteria: business has confirmed all details and the booking is complete
+
+**Phase 4 — Farewell & End Call**
+- Say a natural farewell before ending
+- Example: "Thank you so much, have a great day!" / "Appreciate your help, goodbye!"
+- Immediately use terminate_call after your farewell
+
+## Tools
+- terminate_call: Ends the call. ONLY use after completing Phase 4.
+- Say your farewell out loud FIRST, then call terminate_call — never silently hang up.
+- NEVER call terminate_call before the booking is fully confirmed or clearly not possible.
+- Preamble before terminating: "Thanks so much for your help." or similar — then call the tool.
+"""
 
         return prompt
 
@@ -208,9 +233,13 @@ class TwilioRealtimeServer:
         try:
             async for message in self.openai_ws: # loops forever, yielding each message OpenAI sends. This is what makes it a background listener — it just sits here waiting.
                 data = json.loads(message)
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] OpenAI event: {data.get('type')}")
+
+                if data.get('type') == 'response.output_audio_transcript.delta':
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] AI says: {data.get('delta', '')}", end='', flush=True)
 
                 # OpenAI streams audio back in chunks. Each chunk is a delta. We forward each one to Twilio as it arrives.
-                if data.get('type') == 'response.audio.delta': # checks if the type is an audio response.
+                elif data.get('type') == 'response.output_audio.delta': # checks if the type is an audio response.
                     audio_data = data.get('delta', '') # if it is then get data['delta']
                     if audio_data: # If data['delta'] is not empty,
                         await self.send_audio_to_twilio(audio_data) # Then call send_audio_to_twilio with the audio_data as the payload
@@ -231,6 +260,7 @@ class TwilioRealtimeServer:
       """Send audio from OpenAI back to all active Twilio connections"""
       for stream_sid, twilio_ws in list(self.twilio_connections.items()): # tuple unpacking. Put it in a list() to prevent crashing. One is stream_sid and the other is twilio_ws
           try:
+              print(f"[{datetime.now().strftime('%H:%M:%S')}] Sending audio to Twilio: {stream_sid}")
               twilio_message = {
                   "event": "media",
                   "streamSid": stream_sid,

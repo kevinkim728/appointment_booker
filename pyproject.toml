@@ -10,6 +10,7 @@ dependencies = [
     "openai>=1.97.1",
     "openai-whisper>=20250625",
     "pydantic>=2.11.7",
+    "pyngrok>=8.1.2",
     "python-dotenv>=1.1.1",
     "requests>=2.32.4",
     "torch>=2.7.1",

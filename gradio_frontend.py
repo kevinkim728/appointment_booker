@@ -3,17 +3,24 @@ import gradio as gr
 import requests
 import json
 
-def make_appointment_call(user_name, appointment_type, preferred_times, additional_details, business_phone):
+def make_appointment_call(user_name, appointment_type, preferred_times, date, additional_details, business_phone):
     """Make an appointment call using the FastAPI backend"""
 
-    # Convert preferred_times string to list (split by commas)
-    times_list = [time.strip() for time in preferred_times.split(',') if time.strip()] # If theres a value in there, then add it to the list
+    # Convert preferred_times string to list (split by commas), defaulting to pm if no am/pm specified
+    times_list = []
+    for time in preferred_times.split(','):
+        time = time.strip()
+        if time:
+            if 'am' not in time.lower() and 'pm' not in time.lower():
+                time = time + 'pm'
+            times_list.append(time)
 
     # Prepare the payload
     payload = {
         "user_name": user_name,
         "appointment_type": appointment_type,
         "preferred_times": times_list,
+        "date": date,
         "additional_details": additional_details,
         "business_phone": '1'+ business_phone
     }
@@ -50,6 +57,10 @@ with gr.Blocks(title="AI Appointment Booker") as app:
                 label="Preferred Times",
                 placeholder="Enter times separated by commas"
             )
+            date = gr.Textbox(
+                label="Date",
+                placeholder="e.g. May 25, 2026"
+            )
             business_phone = gr.Textbox(
                 label="Business Phone Number",
                 placeholder="Phone number to call"
@@ -72,7 +83,7 @@ with gr.Blocks(title="AI Appointment Booker") as app:
     # Connect the button to the function
     make_call_btn.click(
         fn=make_appointment_call,
-        inputs=[user_name, appointment_type, preferred_times, additional_details, business_phone],
+        inputs=[user_name, appointment_type, preferred_times, date, additional_details, business_phone],
         outputs=result_output
     )
 
