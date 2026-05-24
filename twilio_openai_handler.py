@@ -39,7 +39,6 @@ class TwilioRealtimeServer:
 
             self.current_call_sid = call.sid       # save the call ID so we can hang up later
             print(f"✅ Call initiated. Call SID: {self.current_call_sid}")
-            print(f"Webhook URL: {os.getenv('WEBSOCKET_URL').replace('wss://', 'https://').replace('/media-stream', '')}/webhook/voice")
             return {
                 "success": True, 
                 "call_sid": self.current_call_sid, 
@@ -63,7 +62,6 @@ class TwilioRealtimeServer:
             self.twilio_connections[data.get('streamSid')] = twilio_ws # Stores the key streamSid and value twilio_ws(WebSocket object) into twilio_connections dict
             self.call_start_time = datetime.now() # record when the stream opened so we can skip the Twilio trial message
             asyncio.create_task(self.silence_watchdog()) # start the 10-minute hard cap timer
-            print(f'StreamSid stored:{data.get("streamSid")}')
 
         elif event == 'media':
             # continuous audio chunks from Twilio — forward to OpenAI
@@ -144,7 +142,6 @@ class TwilioRealtimeServer:
             }
 
             await self.openai_ws.send(json.dumps(session_update)) # Sends the payload to the openai websocket
-            print("Session update sent to OpenAI ✅")
             asyncio.create_task(self.handle_openai_messages())  # start listening for OpenAI responses in the background
 
         except Exception as e:
@@ -235,13 +232,17 @@ Follow these phases in order:
     
     async def handle_openai_messages(self):
         """Handle responses from OpenAI and send back to Twilio"""
+        transcript_buffer = ""
         try:
             async for message in self.openai_ws: # loops forever, yielding each message OpenAI sends. This is what makes it a background listener — it just sits here waiting.
                 data = json.loads(message)
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] OpenAI event: {data.get('type')}")
 
                 if data.get('type') == 'response.output_audio_transcript.delta':
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] AI says: {data.get('delta', '')}", end='', flush=True)
+                    transcript_buffer += data.get('delta', '')
+
+                elif data.get('type') == 'response.output_audio_transcript.done':
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] AI: {transcript_buffer}")
+                    transcript_buffer = ""
 
                 # OpenAI streams audio back in chunks. Each chunk is a delta. We forward each one to Twilio as it arrives.
                 elif data.get('type') == 'response.output_audio.delta': # checks if the type is an audio response.
@@ -265,7 +266,6 @@ Follow these phases in order:
       """Send audio from OpenAI back to all active Twilio connections"""
       for stream_sid, twilio_ws in list(self.twilio_connections.items()): # tuple unpacking. Put it in a list() to prevent crashing. One is stream_sid and the other is twilio_ws
           try:
-              print(f"[{datetime.now().strftime('%H:%M:%S')}] Sending audio to Twilio: {stream_sid}")
               twilio_message = {
                   "event": "media",
                   "streamSid": stream_sid,
