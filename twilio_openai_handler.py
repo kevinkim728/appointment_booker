@@ -121,22 +121,6 @@ class TwilioRealtimeServer:
                         }
                     },
                     "tools": [
-                        # terminate_call disabled — call end is handled server-side via silence_watchdog
-                        # {
-                        #     "type": "function",
-                        #     "name": "terminate_call",
-                        #     "description": "End the phone call",
-                        #     "parameters": {
-                        #         "type": "object",
-                        #         "properties": {
-                        #             "reason": {
-                        #                 "type": "string",
-                        #                 "description": "Reason for ending the call (e.g., 'appointment booked at 7pm', 'no availability', 'task complete')"
-                        #             }
-                        #         },
-                        #         "required": ["reason"]
-                        #     }
-                        # }
                     ]
                 }
             }
