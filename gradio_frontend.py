@@ -3,7 +3,7 @@ import gradio as gr
 import requests
 import json
 
-def make_appointment_call(user_name, appointment_type, preferred_times, date, additional_details, business_phone):
+def make_appointment_call(user_name, appointment_type, preferred_times, date, acceptable_range, additional_details, business_phone):
     """Make an appointment call using the FastAPI backend"""
 
     # Convert preferred_times string to list (split by commas), defaulting to pm if no am/pm specified
@@ -21,6 +21,7 @@ def make_appointment_call(user_name, appointment_type, preferred_times, date, ad
         "appointment_type": appointment_type,
         "preferred_times": times_list,
         "date": date,
+        "acceptable_range": acceptable_range,
         "additional_details": additional_details,
         "business_phone": '1'+ business_phone
     }
@@ -57,6 +58,10 @@ with gr.Blocks(title="AI Appointment Booker") as app:
                 label="Preferred Times",
                 placeholder="Enter times separated by commas"
             )
+            acceptable_range = gr.Textbox(
+                label="Acceptable Time Range",
+                placeholder="e.g., 1pm - 4pm (optional fallback)"
+            )
             date = gr.Textbox(
                 label="Date",
                 placeholder="e.g. May 25, 2026"
@@ -83,7 +88,7 @@ with gr.Blocks(title="AI Appointment Booker") as app:
     # Connect the button to the function
     make_call_btn.click(
         fn=make_appointment_call,
-        inputs=[user_name, appointment_type, preferred_times, date, additional_details, business_phone],
+        inputs=[user_name, appointment_type, preferred_times, date, acceptable_range, additional_details, business_phone],
         outputs=result_output
     )
 

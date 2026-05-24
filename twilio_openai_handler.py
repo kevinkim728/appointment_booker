@@ -119,7 +119,7 @@ class TwilioRealtimeServer:
                         "output": {
                             "format": {"type": "audio/pcmu"},  # G.711 μ-law — matches Twilio's format so no conversion needed
                             "voice": "alloy",
-                            "speed": 1.1
+                            "speed": 1.0
                         }
                     },
                     "tools": [
@@ -161,6 +161,7 @@ class TwilioRealtimeServer:
         preferred_times = self.call_context.get('preferred_times', [])
         date = self.call_context.get('date', '')
         additional_details = self.call_context.get('additional_details', '')
+        acceptable_range = self.call_context.get('acceptable_range', '')
 
         time_prefs = f"{', '.join(preferred_times)}" if preferred_times else ""
 
@@ -184,6 +185,7 @@ Follow these phases in order:
 **Phase 1 — Introduction**
 - Greet the business and state your purpose
 - Example: "Hi, I'm calling on behalf of {user_name} to book a {appointment_type} for {date}. Do you have availability at {time_prefs}?"
+- Your opening question must ask specifically about availability at {time_prefs} — do not ask the business what times they have open
 - Exit criteria: business has responded to your greeting
 
 **Handling Pauses**
@@ -194,7 +196,8 @@ Follow these phases in order:
 
 **Phase 2 — Confirm Availability**
 - If available at a preferred time: confirm which time and move to Phase 3
-- If not available: ask if any other times work, if still no — move to Phase 4
+- If preferred time is unavailable, ask if there are any available times within the range provided: {acceptable_range}
+- If nothing is available within the preferred time or acceptable range: move to Phase 4
 - Exit criteria: availability is clearly confirmed or denied
 
 **Phase 3 — Collect Details**

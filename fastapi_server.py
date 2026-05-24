@@ -19,6 +19,7 @@ class CallDetails(BaseModel):
     preferred_times: List[str] = ["Tuesday 12-2"]
     date: Optional[str] = "date of reservation"
     additional_details: Optional[str] = "Party for 2"
+    acceptable_range: Optional[str] = ""
     business_phone: str = "business-phone-number"
 
 @app.get("/")
